@@ -11,7 +11,7 @@ CREATE TABLE user (
 
 CREATE TABLE comment (
     comment_id INT,
-    text VARCHAR(45),
+    text VARCHAR(255),
     created_at DATETIME,
     user_id INT NOT NULL,
     FOREIGN KEY (user_id) REFERENCES user(user_id)

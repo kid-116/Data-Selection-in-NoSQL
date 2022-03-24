@@ -13,6 +13,6 @@ SELECT
     surname,
     created_at
 FROM user JOIN comment USING (user_id)
-WHERE 
+WHERE
     created_at >= CURRENT_DATE AND
-    created_at < CURRENT_DATE + 1;
+    created_at < DATE_ADD(CURRENT_DATE, INTERVAL 1 DAY);
