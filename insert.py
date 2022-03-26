@@ -98,45 +98,40 @@ def mongo_insert(users, comments):
     comments = comments.rename(columns={'_id': 'comment_id'})
 
 def redis_insert(users, comments):
-    SOCIAL = 'social'
-    GROUPS = 10
-
-    def insert(label, items, graph):
-        total = len(items)
+    def redis_insert(graph):
+        total = len(users)
+        GROUPS = 10
         group = total // GROUPS
-        for i in range(GROUPS):
-            for item in list(items[group * i : group * (i + 1)].T.to_dict().values()):
-                if label == 'comment':
-                    del item['user_id']
-                graph.add_node(Node(label=label, properties=item))
-            print('#', end='')
+        user_nodes = [Node(label='user', properties=user) for user in list(users.T.to_dict().values())]
+        comment_nodes = [Node(label='comment', properties=comment) for comment in list(comments.T.to_dict().values())]
+        
+        print("Inserting users")
+        for i, user in enumerate(user_nodes):
+            graph.add_node(user)
+            if (i + 1) % group == 0: 
+                print('#', end='')
         print()
-        query = f"""
-            MATCH (t:{label})
-            WITH t.{label}_id as id, collect(t) AS nodes 
-            WHERE size(nodes) >  1
-            UNWIND nodes[1..] AS node
-            DELETE node
-        """
-        result = graph.query(query)
-        result.pretty_print()
+        print("Inserting comments")
+        for i, comment in enumerate(comment_nodes):
+            graph.add_node(comment)
+            if (i + 1) % group == 0: 
+                print('#', end='')
+        print()
+        graph.commit()
 
-    def rel(graph, comments):
-        total = len(comments)
-        group = total // GROUPS
-        for i in range(GROUPS):
-            for comment in list(comments[group * i : group * (i + 1)].T.to_dict().values()):
-                params = {
-                    'u_id': comment['user_id'],
-                    'c_id': comment['comment_id']
-                }
-                query = """
-                    MATCH (u:user {user_id:$u_id})
-                    MATCH (c:comment {comment_id:$c_id})
-                    CREATE (u)-[:wrote]->(c)
-                """
-                graph.query(query, params)
-            print('#', end='')
+        print("Creating relations")
+        for i, comment in enumerate(comment_nodes):
+            graph.add_edge(Edge(
+                user_nodes[comment.properties['user_id'] - 1],
+                'wrote',
+                comment
+            ))
+            if (i + 1) % group == 0: 
+                print('#', end='')
+        graph.commit()
+
+        del user_nodes, comment_nodes
+
         print()
             
     SOCIAL = 'social'
@@ -145,21 +140,11 @@ def redis_insert(users, comments):
         port=6379,
     )
     graph = Graph(SOCIAL, client)
-
     try:
         graph.delete()
     except:
         pass
-
-    print("Inserting users")
-    insert('user', users, graph)
-    print("Inserting comments")
-    insert('comment', comments, graph)
-
-    graph.commit()
-
-    print("Creating relations")
-    rel(graph, comments)
+    redis_insert(graph)
 
 def head(title):
     print()
