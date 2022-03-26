@@ -1,9 +1,10 @@
 import pandas as pd
 import mysql.connector
 import os
-import sys
 import pymongo
 from dotenv import load_dotenv
+import redis
+from redisgraph import Node, Edge, Graph
 
 load_dotenv()
 
@@ -96,13 +97,76 @@ def mongo_insert(users, comments):
     users = users.rename(columns={'_id': 'user_id'})
     comments = comments.rename(columns={'_id': 'comment_id'})
 
+def redis_insert(users, comments):
+    SOCIAL = 'social'
+    GROUPS = 10
+
+    def insert(label, items, graph):
+        total = len(items)
+        group = total // GROUPS
+        for i in range(GROUPS):
+            for item in list(items[group * i : group * (i + 1)].T.to_dict().values()):
+                if label == 'comment':
+                    del item['user_id']
+                graph.add_node(Node(label=label, properties=item))
+            print('#', end='')
+        print()
+        query = f"""
+            MATCH (t:{label})
+            WITH t.{label}_id as id, collect(t) AS nodes 
+            WHERE size(nodes) >  1
+            UNWIND nodes[1..] AS node
+            DELETE node
+        """
+        result = graph.query(query)
+        result.pretty_print()
+
+    def rel(graph, comments):
+        total = len(comments)
+        group = total // GROUPS
+        for i in range(GROUPS):
+            for comment in list(comments[group * i : group * (i + 1)].T.to_dict().values()):
+                params = {
+                    'u_id': comment['user_id'],
+                    'c_id': comment['comment_id']
+                }
+                query = """
+                    MATCH (u:user {user_id:$u_id})
+                    MATCH (c:comment {comment_id:$c_id})
+                    CREATE (u)-[:wrote]->(c)
+                """
+                graph.query(query, params)
+            print('#', end='')
+        print()
+            
+    SOCIAL = 'social'
+    client = redis.Redis(
+        host='localhost',
+        port=6379,
+    )
+    graph = Graph(SOCIAL, client)
+
+    try:
+        graph.delete()
+    except:
+        pass
+
+    print("Inserting users")
+    insert('user', users, graph)
+    print("Inserting comments")
+    insert('comment', comments, graph)
+
+    graph.commit()
+
+    print("Creating relations")
+    rel(graph, comments)
+
 def head(title):
     print()
     print(title)
     print('----------')
 
 def ins(folder):
-    print(f"Loading {folder}")
     users, comments = load(folder)
 
     head('MySQL')
@@ -110,3 +174,6 @@ def ins(folder):
 
     head('MongoDB')
     mongo_insert(users, comments)
+
+    head('Redis')
+    redis_insert(users, comments)
